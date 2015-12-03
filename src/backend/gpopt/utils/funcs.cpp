@@ -60,6 +60,7 @@ PG_FUNCTION_INFO_V1(DumpMDScCmpDXL);
 
 PG_FUNCTION_INFO_V1(DumpQuery);
 PG_FUNCTION_INFO_V1(RestoreQuery);
+PG_FUNCTION_INFO_V1(DumpQueryFromFile);
 PG_FUNCTION_INFO_V1(DumpQueryToFile);
 PG_FUNCTION_INFO_V1(RestoreQueryFromFile);
 PG_FUNCTION_INFO_V1(DumpQueryDXL);
@@ -330,6 +331,44 @@ RestoreQuery(PG_FUNCTION_ARGS)
 	appendStringInfo(&str, "Query processed %d rows", iProcessed);
 	text *ptResult = stringToText(str.data);
 
+	PG_RETURN_TEXT_P(ptResult);
+}
+}
+
+//---------------------------------------------------------------------------
+//	@function:
+//		DumpQueryFromFile
+//
+//	@doc:
+//		Parse a query from file and dump out query object as bytea.
+// 		Input: name of the file containing query
+// 		Output: serialized version of query as bytea
+//
+//---------------------------------------------------------------------------
+
+extern "C" {
+Datum
+DumpQueryFromFile(PG_FUNCTION_ARGS)
+{
+	char *szSqlFilename = textToString(PG_GETARG_TEXT_P(0));
+
+	CFileReader fr;
+	fr.Open(szSqlFilename);
+	ULLONG ullSize = fr.UllSize();
+
+	char *pcBuf = (char*) gpdb::GPDBAlloc(ullSize + 1);
+	fr.UlpRead((BYTE*)pcBuf, ullSize);
+	pcBuf[ullSize] = '\0';
+	fr.Close();
+
+	Query *pquery = parseSQL(pcBuf);
+	elog(NOTICE, "(DumpQuery - Original) \n %s", pretty_format_node_dump(const_cast<char*>(gpdb::SzNodeToString(pquery))));
+
+	Query *pqueryNormalized = preprocess_query_optimizer(pquery, NULL);
+	elog(NOTICE, "(DumpQuery - Normalized) \n %s", pretty_format_node_dump(const_cast<char*>(gpdb::SzNodeToString(pqueryNormalized))));
+
+	gpdb::GPDBFree(pcBuf);
+	text *ptResult = stringToText("Query dumped");
 	PG_RETURN_TEXT_P(ptResult);
 }
 }

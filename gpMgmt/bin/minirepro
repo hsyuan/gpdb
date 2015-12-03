@@ -42,14 +42,6 @@ def getVersion(envOpts):
     return cmd.communicate()[0]
 
 
-def dumpSchema(connectionInfo, envOpts):
-    dmp_cmd = 'pg_dump -h %s -p %s -U %s -s -x --gp-syntax -O %s' % connectionInfo
-    p = subprocess.Popen(dmp_cmd, shell=True, stderr=subprocess.PIPE, env=envOpts)
-    if p.wait() is not 0:
-        sys.stderr.write('\nError while dumping schema.\n\n' + p.communicate()[1] + '\n\n')
-        sys.exit(1)
-
-
 def parseCmdLine():
     p = OptionParser(usage='Usage: %prog <database> [options]', version=gpsd_version, conflict_handler="resolve")
     p.add_option('-?', '--help', action='help', help='Show this help message and exit')
@@ -63,41 +55,65 @@ def parseCmdLine():
                  help='file name that contains the query')
     p.add_option('-f', action='store', dest='output_file',
                  help='minirepro output file name')
-    p.add_option('-v', action='store_true', default='False', dest='dump_views',
-                 help='dump all views in database')
     return p
 
-def query_to_dxl(connectionInfo, query_file):
+def remove_explain(query_file):
+    with open(query_file, 'r') as query_f:
+        out_file = PATH_PREFIX + 'query_no_explain.sql'
+        with open(out_file, 'w') as out_f:
+            for line in query_f:
+                line = line.strip()
+                ln = line.upper()
+                if ln.startswith('EXPLAIN ANALYZE ') or ln.startswith('EXPLAIN VERBOSE '):
+                    out_f.writelines(line[16:])
+                elif ln.startswith('EXPLAIN '):
+                    out_f.writelines(line[8:])
+                else:
+                    out_f.writelines(line)
+                out_f.writelines('\n')
+    return out_file
+
+def dump_query(connectionInfo, query_file):
     (host, port, user, db) = connectionInfo
-    print "Translating query file to xml ...: %s" % query_file
+    print "Extracting metadata from query file %s ..." % query_file
 
     file_in = os.path.abspath(query_file)
     basename = os.path.basename(query_file).split('.')[0]
-    file_out = PATH_PREFIX + basename + '.xml'
+    file_out = PATH_PREFIX + basename + '.txt'
 
-    orca_udf_cmd = "psql %s -p %s -c \"select gpoptutils.DumpQueryFromFileToDXLFile('%s','%s')\"" % \
-                   (db, port, file_in, file_out)
+    orca_udf_cmd = "psql %s -p %s -c \"select gpoptutils.DumpQueryFromFile('%s')\"" % \
+                   (db, port, file_in)
 
     print orca_udf_cmd
 
     envOpts = os.environ
-    p = subprocess.Popen(orca_udf_cmd, shell=True, stderr=subprocess.PIPE ,env=envOpts)
+    p = subprocess.Popen(orca_udf_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envOpts)
     if p.wait() is not 0:
         sys.stderr.write('\nError while running ORCA UDFs.\n\n' + p.communicate()[1] + '\n\n')
         sys.exit(1)
 
+    with open(file_out, 'w') as dump_file:
+        dump_file.write(p.communicate()[1])
+
     return file_out
 
-
-def parse_xml(cursor, dxl_file):
-    print "Parsing xml file ... : %s" % dxl_file
+# table oid and view oid will be extracted from the md_file
+def parse_metadata(cursor, md_file):
+    print "Parsing metadata file %s ..." % md_file
     result = MRQuery()
-    with open(dxl_file, 'r') as f_dxl:
-        for line in f_dxl:
-            if line.strip().startswith('<dxl:TableDescriptor'):
-                oid = line.split()[1].split('.')[1]
-                result.tableoids.append(oid)
+    oid_map = {}
+    with open(md_file, 'r') as f_md:
+        for line in f_md:
+            ln = line.strip()
+            if ln.startswith('NOTICE:  (DumpQuery - Normalized)'):
+                break
+            if ln.startswith(':relid '):
+                oid = ln.split()[1]
+                oid_map[oid] = 1
 
+    result.tableoids = oid_map.keys()
+    if len(result.tableoids) == 0:
+        result.tableoids.append('0')
     oid_str = ','.join(result.tableoids)
     cat_query = "SELECT nspname, relname FROM pg_class, pg_namespace WHERE pg_class.relnamespace = pg_namespace.oid " \
                 "AND pg_class.oid IN (%s)" % oid_str
@@ -112,25 +128,6 @@ def parse_xml(cursor, dxl_file):
             result.tables[schm].append(table)
 
     return result
-
-def dumpViews(cursor, connectionInfo, envOpts):
-    query = "SELECT pgn.nspname, pgc.relname FROM pg_class pgc, pg_namespace pgn " \
-        "WHERE pgn.oid = pgc.relnamespace and pgc.relkind = 'v' " \
-        "and pgc.oid > 16758 and (pgn.oid > 16758 or pgn.oid = 2200)"
-    cursor.execute(query)
-
-    view_dict = {}
-    for vals in ResultIter(cursor):
-        schm, view = vals[0], vals[1]
-        if schm not in view_dict:
-            view_dict[schm] = [view]
-        else:
-            view_dict[schm].append(view)
-
-    pg_dump_object(view_dict, 'view', connectionInfo, envOpts)
-
-    return view_dict
-
 
 def pg_dump_object(obj_dict, type_str, connectionInfo, envOpts):
     for schema, table_list in obj_dict.iteritems():
@@ -236,12 +233,16 @@ def main():
     port = options.port or envOpts['PGPORT'] or '5432'
     query_file = options.query_file
     output_file = options.output_file
-    dump_views = options.dump_views
 
     if query_file is None:
-        raise Exception("No query file specified. See minirepro -? for usage.")
+        parser.error("No query file specified.")
+        exit(1)
     if output_file is None:
-        raise Exception("No output file specified. See minirepro -? for usage.")
+        parser.error("No output file specified.")
+        exit(1)
+    if not os.path.isfile(query_file):
+        parser.error('Query file %s does not exist.' % query_file)
+        exit(1)
 
     # check if db conn is ok before we do anything real
     version = getVersion(envOpts)
@@ -259,37 +260,38 @@ def main():
     # setup the connection info tuple with options
     connectionInfo = (host, port, user, db)
     connectionString = ':'.join([host, port, db, user, '', pgoptions, ''])
-    print "Connecting to database: host=%s, user=%s, port=%s, db=%s ..." % connectionInfo
+    print "Connecting to database: host=%s, port=%s, user=%s, db=%s ..." % connectionInfo
     conn = pgdb.connect(connectionString)
     cursor = conn.cursor()
 
-    """
-    invoke Orca UDFs, put xml file in a temp folder
-    input: query file name
-    output: file name of the xml file
-    """
-    xml_file = query_to_dxl(connectionInfo, query_file)
+    # remove EXPLAIN in the query file and return new query file path
+    sql_file = remove_explain(query_file)
 
     """
-    parse xml file, collect all things that need to be dumped
-    input: xml file name
+    invoke Orca UDFs, put metadata file in a temp folder
+    input: query file name
+    output: file name of the metadata file
+    """
+    md_file = dump_query(connectionInfo, sql_file)
+
+    """
+    parse metadata file, collect all things that need to be dumped
+    input: metadata file name
     output: MRQuery class (self.tables, self.views, self.funcs, etc)
     """
-    mr_query = parse_xml(cursor, xml_file)
+    mr_query = parse_metadata(cursor, md_file)
 
-    # dump tables
+    # dump tables and views
     print "Invoking pg_dump to dump DDL ..."
     pg_dump_object(mr_query.tables, 'table', connectionInfo, envOpts)
 
     # dump functions
-
-
-    # dump all the views in db
-    view_dict = {}
-    if dump_views:
-        view_dict = dumpViews(cursor, connectionInfo, envOpts)
+    # TODO
 
     ### start writing out to stdout ###
+    output_dir = os.path.dirname(output_file)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     f_out = open(output_file, 'w')
     ts = datetime.today()
     f_out.writelines(['-- MiniRepro 1.0',
@@ -308,18 +310,11 @@ def main():
     print "Creating schemas ..."
     table_schemas = ["CREATE SCHEMA %s;\n" % schema for schema in mr_query.tables if schema != 'public']
     f_out.writelines(table_schemas)
-    view_schemas = ["CREATE SCHEMA %s;\n" % schema for schema in view_dict if schema != 'public']
-    f_out.writelines(view_schemas)
 
-    # concatenate table DDLs
-    print "Writing table DDLs ..."
+    # concatenate table & view DDLs
+    print "Writing table & view DDLs ..."
     for f in os.listdir(PATH_PREFIX):
         print_obj_DDL(f, 'table', f_out)
-
-    # concatenate view DDLs
-    print "Writing view DDLs ..."
-    for f in os.listdir(PATH_PREFIX):
-        print_obj_DDL(f, 'view', f_out)
 
     # Now we have to explicitly allow editing of these pg_class &
     # pg_statistic tables
@@ -360,4 +355,3 @@ def main():
 
 if __name__ == "__main__":
         main()
-
