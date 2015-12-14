@@ -62,7 +62,6 @@ PG_FUNCTION_INFO_V1(DumpMDScCmpDXL);
 
 PG_FUNCTION_INFO_V1(DumpQuery);
 PG_FUNCTION_INFO_V1(RestoreQuery);
-PG_FUNCTION_INFO_V1(DumpQueryFromFileToFile);
 PG_FUNCTION_INFO_V1(DumpQueryToFile);
 PG_FUNCTION_INFO_V1(RestoreQueryFromFile);
 PG_FUNCTION_INFO_V1(DumpQueryDXL);
@@ -114,8 +113,7 @@ static Query *parseSQL(char *szSqlText)
 
 	if (1 != gpdb::UlListLength(plQueryTree))
 	{
-		elog(ERROR, "Cannot parse query. "
-				"Please make sure the input contains a single valid query. \n%s", szSqlText);
+		elog(ERROR, "problem parsing query %s", szSqlText);
 	}
 
 	Query *pquery = (Query *) lfirst(gpdb::PlcListHead(plQueryTree));
@@ -335,60 +333,6 @@ RestoreQuery(PG_FUNCTION_ARGS)
 	text *ptResult = stringToText(str.data);
 
 	PG_RETURN_TEXT_P(ptResult);
-}
-}
-
-//---------------------------------------------------------------------------
-//	@function:
-//		DumpQueryFromFileToFile
-//
-//	@doc:
-//		Parse a query from file and dump out query object to file.
-// 		Input: name of the file containing query
-// 		Output: serialized query object representation written to file.
-//
-//---------------------------------------------------------------------------
-
-extern "C" {
-Datum
-DumpQueryFromFileToFile(PG_FUNCTION_ARGS)
-{
-	char *szSqlFilename = textToString(PG_GETARG_TEXT_P(0));
-	char *szOutFilename = textToString(PG_GETARG_TEXT_P(1));
-
-	CFileReader fr;
-	fr.Open(szSqlFilename);
-	ULLONG ullSize = fr.UllSize();
-
-	char *pcBuf = (char*) gpdb::GPDBAlloc(ullSize + 1);
-	fr.UlpRead((BYTE*)pcBuf, ullSize);
-	pcBuf[ullSize] = '\0';
-	fr.Close();
-
-	Query *pquery = parseSQL(pcBuf);
-	if (CMD_UTILITY == pquery->commandType && T_ExplainStmt == pquery->utilityStmt->type)
-	{
-		Query *pqueryExplain = ((ExplainStmt *)pquery->utilityStmt)->query;
-		List *plQueryTree = QueryRewrite(pqueryExplain);
-		Assert(1 == gpdb::UlListLength(plQueryTree));
-		pquery = (Query *) lfirst(gpdb::PlcListHead(plQueryTree));
-	}
-	Query *pqueryNormalized = preprocess_query_optimizer(pquery, NULL);
-	gpdb::GPDBFree(pcBuf);
-
-	StringInfoData str;
-	initStringInfo(&str);
-	appendStringInfo(&str,
-			"(DumpQuery - Original) \n %s(DumpQuery - Normalized) \n %s",
-			pretty_format_node_dump(const_cast<char*>(gpdb::SzNodeToString(pquery))),
-			pretty_format_node_dump(const_cast<char*>(gpdb::SzNodeToString(pqueryNormalized))));
-
-	CFileWriter fw;
-	fw.Open(szOutFilename, S_IRUSR | S_IWUSR);
-	fw.Write(reinterpret_cast<const BYTE*>(str.data), str.len);
-	fw.Close();
-
-	return str.len;
 }
 }
 

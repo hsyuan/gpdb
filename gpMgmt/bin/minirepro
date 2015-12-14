@@ -26,7 +26,7 @@ def generate_timestamp():
     timestamp = datetime.now()
     return timestamp.strftime("%Y%m%d%H%M%S")
 
-def ResultIter(cursor, arraysize=1000):
+def result_iter(cursor, arraysize=1000):
     'An iterator that uses fetchmany to keep memory usage down'
     while True:
         results = cursor.fetchmany(arraysize)
@@ -35,14 +35,14 @@ def ResultIter(cursor, arraysize=1000):
         for result in results:
             yield result
 
-def getVersion(envOpts):
+def get_version(envOpts):
     cmd = subprocess.Popen('psql --pset footer -Atqc "select version()" template1', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envOpts)
     if cmd.wait() is not 0:
         sys.stderr.write('\nError while trying to find HAWQ/GPDB version.\n\n' + cmd.communicate()[1] + '\n\n')
         sys.exit(1)
     return cmd.communicate()[0]
 
-def parseCmdLine():
+def parse_cmd_line():
     p = OptionParser(usage='Usage: %prog <database> [options]', version=prog_version, conflict_handler="resolve")
     p.add_option('-?', '--help', action='help', help='Show this help message and exit')
     p.add_option('-h', '--host', action='store',
@@ -57,44 +57,38 @@ def parseCmdLine():
                  help='minirepro output file name')
     return p
 
-def dump_query(connectionInfo, query_file):
-    (host, port, user, db) = connectionInfo
+def dump_query(cursor, query_file):
     print "Extracting metadata from query file %s ..." % query_file
 
-    file_in = os.path.abspath(query_file)
-    basename = os.path.basename(query_file).split('.')[0]
-    file_out = PATH_PREFIX + basename + '.txt'
+    with open(query_file, 'r') as query_f:
+        sql_text = query_f.read()
+    query = "select gp_toolkit.gp_dump_query('%s')" % E(sql_text)
 
-    orca_udf_cmd = "psql %s -p %s -c \"select gpoptutils.DumpQueryFromFileToFile('%s', '%s')\"" % \
-                    (E(db), E(port), E(file_in), E(file_out))
-
-    print orca_udf_cmd
-
-    envOpts = os.environ
-    p = subprocess.Popen(orca_udf_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envOpts)
-    if p.wait() is not 0:
-        message = p.communicate()[1]
-        if re.compile('gpoptutils.*does not exist').search(message):
-            sys.stderr.writelines('\nError: ORCA UDFs must be installed before you run minirepro.\n\n')
+    try:
+        cursor.execute(query)
+        vals = cursor.fetchone()
+        return vals[0]
+    except pgdb.DatabaseError as e:
+        if re.compile('gp_dump_query\(unknown\) does not exist').search(str(e)):
+            sys.stderr.writelines('\nError: gp_toolkit.gp_dump_query must be installed before you run minirepro.\n\n')
         else:
-            sys.stderr.writelines('\nError while running ORCA UDFs.\n\n' + message + '\n\n')
+            sys.stderr.writelines('\nError while running gp_dump_query.\n\n' + str(e) + '\n\n')
         sys.exit(1)
 
-    return file_out
-
-# relation oid will be extracted from the md_file
-def parse_metadata(cursor, md_file):
-    print "Parsing metadata file %s ..." % md_file
+# relation oid will be extracted from the dump string
+def parse_metadata(cursor, dump):
+    print "Parsing query object ..."
     result = MRQuery()
     oid_map = {}
-    with open(md_file, 'r') as f_md:
-        for line in f_md:
-            ln = line.strip()
-            if ln.startswith('(DumpQuery - Normalized)'):
-                break
-            if ln.startswith(':relid '):
-                oid = ln.split()[1]
-                oid_map[oid] = 1
+    lines = dump.splitlines()
+
+    for line in lines:
+        ln = line.strip()
+        if ln.startswith('(gp_dump_query - Normalized)'):
+            break
+        if ln.startswith(':relid '):
+            oid = ln.split()[1]
+            oid_map[oid] = 1
 
     result.relids = oid_map.keys()
     if len(result.relids) == 0:
@@ -105,7 +99,7 @@ def parse_metadata(cursor, md_file):
 
     cursor.execute(cat_query)
 
-    for vals in ResultIter(cursor):
+    for vals in result_iter(cursor):
         schm, relname = vals[0], vals[1]
         if schm not in result.relations:
             result.relations[schm] = [relname]
@@ -125,7 +119,7 @@ def pg_dump_object(obj_dict, connectionInfo, envOpts):
             sys.stderr.write('\nError while dumping schema.\n\n' + p.communicate()[1] + '\n\n')
             sys.exit(1)
 
-def print_obj_DDL(filename, f_out):
+def print_obj_ddl(filename, f_out):
     if filename.endswith('.dp.sql'):
         f_path = os.path.join(PATH_PREFIX, filename)
         with open(f_path, 'r') as f_opened:
@@ -135,7 +129,7 @@ def print_obj_DDL(filename, f_out):
                     f_out.writelines(line)
                 line_no += 1
 
-def dumpTupleCount(cur, oid_str, f_out):
+def dump_tuple_count(cur, oid_str, f_out):
     stmt = "SELECT pgc.relname, pgn.nspname, pgc.relpages, pgc.reltuples FROM pg_class pgc, pg_namespace pgn " \
             "WHERE pgc.relnamespace = pgn.oid and pgc.oid in (%s) and pgn.nspname NOT LIKE 'pg_temp_%%' " \
             "and pgn.nspname NOT IN %s" % (oid_str, sysnslist)
@@ -149,7 +143,7 @@ def dumpTupleCount(cur, oid_str, f_out):
     cur.execute(stmt)
     columns = [x[0] for x in cur.description]
     types = ['int', 'real']
-    for vals in ResultIter(cur):
+    for vals in result_iter(cur):
         lines = []
         for col, val, typ in zip(columns[2:], vals[2:], types):
             # i.e. relpages = 1::int, reltuples = 1.0::real
@@ -157,7 +151,7 @@ def dumpTupleCount(cur, oid_str, f_out):
         updateStmt = templateStmt.format(E(',\n'.join(lines)), E(vals[0]), E(vals[1]))
         f_out.writelines(updateStmt)
 
-def dumpStats(cur, oid_str, f_out):
+def dump_stats(cur, oid_str, f_out):
     query = 'SELECT pgc.relname, pgn.nspname, pga.attname, pgt.typname, pgs.* ' \
         'FROM pg_class pgc, pg_statistic pgs, pg_namespace pgn, pg_attribute pga, pg_type pgt ' \
         'WHERE pgc.relnamespace = pgn.oid and pgc.oid in (%s) and pgn.nspname NOT IN %s ' \
@@ -193,7 +187,7 @@ def dumpStats(cur, oid_str, f_out):
 
     cur.execute(query)
 
-    for vals in ResultIter(cur):
+    for vals in result_iter(cur):
         rowVals = ["\t'%s.%s'::regclass" % tuple(vals[1::-1])]
 
         if vals[3][0] == '_':
@@ -209,7 +203,7 @@ def dumpStats(cur, oid_str, f_out):
         f_out.writelines(pstring.format(E(vals[0]), E(vals[2]), ',\n'.join(rowVals)))
 
 def main():
-    parser = parseCmdLine()
+    parser = parse_cmd_line()
     options, args = parser.parse_args()
     if len(args) != 1:
         parser.error("No database specified")
@@ -235,7 +229,7 @@ def main():
         exit(1)
 
     # check if db conn is ok before we do anything real
-    version = getVersion(envOpts)
+    version = get_version(envOpts)
 
     timestamp = generate_timestamp()
     global PATH_PREFIX
@@ -255,18 +249,18 @@ def main():
     cursor = conn.cursor()
 
     """
-    invoke Orca UDFs, put metadata file in a temp folder
+    invoke gp_toolkit UDF, dump query object as text
     input: query file name
-    output: file name of the metadata file
+    output: text for query object
     """
-    md_file = dump_query(connectionInfo, query_file)
+    query_obj = dump_query(cursor, query_file)
 
     """
-    parse metadata file, collect all things that need to be dumped
-    input: metadata file name
+    parse query metadata string, collect all things that need to be dumped
+    input: query metadata string
     output: MRQuery class (self.relations, self.funcs, self.relids)
     """
-    mr_query = parse_metadata(cursor, md_file)
+    mr_query = parse_metadata(cursor, query_obj)
 
     # dump tables and views
     print "Invoking pg_dump to dump DDL ..."
@@ -294,14 +288,14 @@ def main():
     f_out.writelines('\\connect ' + db + '\n\n')
 
     # first create schema DDLs
-    print "Writing schemas DDLs ..."
+    print "Writing schema DDLs ..."
     table_schemas = ["CREATE SCHEMA %s;\n" % schema for schema in mr_query.relations if schema != 'public']
     f_out.writelines(table_schemas)
 
-    # concatenate table & view DDLs
+    # write table & view DDLs
     print "Writing table & view DDLs ..."
     for f in os.listdir(PATH_PREFIX):
-        print_obj_DDL(f, f_out)
+        print_obj_ddl(f, f_out)
 
     # Now we have to explicitly allow editing of these pg_class &
     # pg_statistic tables
@@ -314,11 +308,11 @@ def main():
     # dump table stats
     print "Writing table statistics ..."
     oid_str = ','.join(mr_query.relids)
-    dumpTupleCount(cursor, oid_str, f_out)
+    dump_tuple_count(cursor, oid_str, f_out)
 
     # dump column stats
     print "Writing column statistics ..."
-    dumpStats(cursor, oid_str, f_out)
+    dump_stats(cursor, oid_str, f_out)
 
     cursor.close()
     conn.close()
@@ -327,7 +321,7 @@ def main():
     print "Attaching raw query text ..."
     f_out.writelines(['\n-- ',
                        '\n-- Query text',
-                       '\n-- '])
+                       '\n-- \n\n'])
 
     with open(query_file, 'r') as query_f:
         for line in query_f:

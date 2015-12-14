@@ -38,7 +38,7 @@ extern "C" {
 #include "parser/parse_relation.h"
 #include "parser/parse_clause.h"
 #include "parser/parse_oper.h"
-#include "rewrite/rewriteHandler.h"
+
 #include "catalog/namespace.h"
 #include "catalog/pg_exttable.h"
 #include "cdb/cdbpartition.h"
@@ -70,9 +70,6 @@ Query *preprocess_query_optimizer(Query *pquery, ParamListInfo boundParams);
 
 extern
 List *pg_parse_and_rewrite(const char *query_string, Oid *paramTypes, int iNumParams);
-
-extern
-List *QueryRewrite(Query *parsetree);
 
 extern
 PlannedStmt *pg_plan_query(Query *pqueryTree, ParamListInfo boundParams);

@@ -5,12 +5,12 @@ from gppylib.test.behave_utils.utils import drop_database_if_exists, drop_table_
 def impl(context, dbname):
     drop_database_if_exists(context, dbname)
 
-@given('the query file "{file_name}" does not exist')
+@given('the file "{file_name}" does not exist')
 def impl(context, file_name):
     if os.path.isfile(file_name):
         os.remove(file_name)
 
-@given('the query file "{file_name}" exists and contains "{sql_query}"')
+@given('the file "{file_name}" exists and contains "{sql_query}"')
 def impl(context, file_name, sql_query):
     if os.path.isfile(file_name):
         os.remove(file_name)
@@ -76,7 +76,7 @@ def impl(context, output_file, db_name):
     if 'ERROR:' in context.error_message:
         raise Exception('Database %s failed to run %s, error message: %s' % (db_name, output_file, context.error_message))
 
-@then('the query file "{query_file}" should be executed in database "{db_name}" without error')
+@then('the file "{query_file}" should be executed in database "{db_name}" without error')
 def impl(context, query_file, db_name):
     run_gpcommand(context, 'psql -d %s -f %s' % (db_name, query_file))
     if 'ERROR:' in context.error_message:
