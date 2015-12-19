@@ -35,12 +35,15 @@ def result_iter(cursor, arraysize=1000):
         for result in results:
             yield result
 
-def get_version(envOpts):
-    cmd = subprocess.Popen('psql --pset footer -Atqc "select version()" template1', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envOpts)
-    if cmd.wait() is not 0:
-        sys.stderr.write('\nError while trying to find HAWQ/GPDB version.\n\n' + cmd.communicate()[1] + '\n\n')
+def get_version(cursor):
+    query = "select version()"
+    try:
+        cursor.execute(query)
+        vals = cursor.fetchone()
+        return vals[0]
+    except pgdb.DatabaseError as e:
+        sys.stderr.write('\nError while trying to find HAWQ/GPDB version.\n\n' + str(e) + '\n\n')
         sys.exit(1)
-    return cmd.communicate()[0]
 
 def parse_cmd_line():
     p = OptionParser(usage='Usage: %prog <database> [options]', version=prog_version, conflict_handler="resolve")
@@ -69,10 +72,8 @@ def dump_query(cursor, query_file):
         vals = cursor.fetchone()
         return vals[0]
     except pgdb.DatabaseError as e:
-        if re.compile('gp_dump_query\(unknown\) does not exist').search(str(e)):
-            sys.stderr.writelines('\nError: gp_toolkit.gp_dump_query must be installed before you run minirepro.\n\n')
-        else:
-            sys.stderr.writelines('\nError while running gp_dump_query.\n\n' + str(e) + '\n\n')
+        sys.stderr.writelines('\nError while running gp_toolkit.gp_dump_query(text).\nPlease make sure ' \
+            'the function is installed and the query file contains single valid query.\n\n' + str(e) + '\n\n')
         sys.exit(1)
 
 # relation oid will be extracted from the dump string
@@ -188,7 +189,7 @@ def dump_stats(cur, oid_str, f_out):
     cur.execute(query)
 
     for vals in result_iter(cur):
-        rowVals = ["\t'%s.%s'::regclass" % tuple(vals[1::-1])]
+        rowVals = ["\t'%s.%s'::regclass" % (E(vals[1]), E(vals[0]))]
 
         if vals[3][0] == '_':
             rowTypes = types + [vals[3]] * 4
@@ -198,7 +199,7 @@ def dump_stats(cur, oid_str, f_out):
             if val is None:
                 val = 'NULL'
             elif isinstance(val, (str, unicode)) and val[0] == '{':
-                val = "E'%s'" % E(val)
+                val = "E'%s'" % val
             rowVals.append('\t{0}::{1}'.format(val, typ))
         f_out.writelines(pstring.format(E(vals[0]), E(vals[2]), ',\n'.join(rowVals)))
 
@@ -228,9 +229,6 @@ def main():
         parser.error('Query file %s does not exist.' % query_file)
         exit(1)
 
-    # check if db conn is ok before we do anything real
-    version = get_version(envOpts)
-
     timestamp = generate_timestamp()
     global PATH_PREFIX
     PATH_PREFIX = PATH_PREFIX + timestamp + '/'
@@ -247,6 +245,9 @@ def main():
     print "Connecting to database: host=%s, port=%s, user=%s, db=%s ..." % connectionInfo
     conn = pgdb.connect(connectionString)
     cursor = conn.cursor()
+
+    # get server version, which is dumped to minirepro output file
+    version = get_version(cursor)
 
     """
     invoke gp_toolkit UDF, dump query object as text
@@ -289,7 +290,7 @@ def main():
 
     # first create schema DDLs
     print "Writing schema DDLs ..."
-    table_schemas = ["CREATE SCHEMA %s;\n" % schema for schema in mr_query.relations if schema != 'public']
+    table_schemas = ["CREATE SCHEMA %s;\n" % E(schema) for schema in mr_query.relations if schema != 'public']
     f_out.writelines(table_schemas)
 
     # write table & view DDLs
