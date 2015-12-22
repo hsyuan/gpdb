@@ -3,7 +3,7 @@
 # Dump minimal schema and statistics for a given query
 #
 
-import os, sys, re, platform, subprocess
+import os, sys, re, json, platform, subprocess
 from optparse import OptionParser
 from pygresql import pgdb
 from datetime import datetime
@@ -65,33 +65,23 @@ def dump_query(cursor, query_file):
 
     with open(query_file, 'r') as query_f:
         sql_text = query_f.read()
-    query = "select gp_toolkit.gp_dump_query('%s')" % E(sql_text)
+    query = "select gp_toolkit.gp_dump_query_oids('%s')" % E(sql_text)
 
     try:
         cursor.execute(query)
         vals = cursor.fetchone()
         return vals[0]
     except pgdb.DatabaseError as e:
-        sys.stderr.writelines('\nError while running gp_toolkit.gp_dump_query(text).\nPlease make sure ' \
+        sys.stderr.writelines('\nError while running gp_toolkit.gp_dump_query_oids(text).\nPlease make sure ' \
             'the function is installed and the query file contains single valid query.\n\n' + str(e) + '\n\n')
         sys.exit(1)
 
 # relation oid will be extracted from the dump string
-def parse_metadata(cursor, dump):
-    print "Parsing query object ..."
+def parse_oids(cursor, json_oids):
     result = MRQuery()
-    oid_map = {}
-    lines = dump.splitlines()
+    oids = json.loads(json_oids)['relids']
+    result.relids = [str(x) for x in oids]
 
-    for line in lines:
-        ln = line.strip()
-        if ln.startswith('(gp_dump_query - Normalized)'):
-            break
-        if ln.startswith(':relid '):
-            oid = ln.split()[1]
-            oid_map[oid] = 1
-
-    result.relids = oid_map.keys()
     if len(result.relids) == 0:
         result.relids.append('0')
     oid_str = ','.join(result.relids)
@@ -250,18 +240,18 @@ def main():
     version = get_version(cursor)
 
     """
-    invoke gp_toolkit UDF, dump query object as text
+    invoke gp_toolkit UDF, dump object oids as json text
     input: query file name
-    output: text for query object
+    output: json oids string
     """
-    query_obj = dump_query(cursor, query_file)
+    json_str = dump_query(cursor, query_file)
 
     """
-    parse query metadata string, collect all things that need to be dumped
-    input: query metadata string
+    parse json oids string, collect all things that need to be dumped
+    input: json oids string
     output: MRQuery class (self.relations, self.funcs, self.relids)
     """
-    mr_query = parse_metadata(cursor, query_obj)
+    mr_query = parse_oids(cursor, json_str)
 
     # dump tables and views
     print "Invoking pg_dump to dump DDL ..."
