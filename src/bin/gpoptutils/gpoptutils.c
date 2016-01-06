@@ -6,9 +6,9 @@
  * The dynamically linked library created from this source can be reference by
  * creating a function in psql that references it. For example,
  *
- * CREATE FUNCTION gp_dump_query(text)
+ * CREATE FUNCTION gp_dump_query_oids(text)
  *	RETURNS text
- *	AS '$libdir/gpoptutils', 'gp_dump_query'
+ *	AS '$libdir/gpoptutils', 'gp_dump_query_oids'
  *	LANGUAGE C STRICT;
  */
 
@@ -95,7 +95,7 @@ static void traverseQueryRTEs
 }
 
 /*
- * Function dumping dependent object oids for a given SQL text
+ * Function dumping dependent relation oids for a given SQL text
  */
 Datum
 gp_dump_query_oids(PG_FUNCTION_ARGS)
@@ -132,5 +132,9 @@ gp_dump_query_oids(PG_FUNCTION_ARGS)
 	initStringInfo(&str);
 	appendStringInfo(&str, "{\"relids\": [%s]}", buf.data);
 
-	PG_RETURN_TEXT_P(cstring_to_text(str.data));
+	text *result = cstring_to_text(str.data);
+	pfree(buf.data);
+	pfree(str.data);
+
+	PG_RETURN_TEXT_P(result);
 }
