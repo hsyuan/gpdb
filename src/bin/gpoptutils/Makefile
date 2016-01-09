@@ -1,8 +1,6 @@
 MODULE_big = gpoptutils
 OBJS       = gpoptutils.o
 
-DATA_built = gpoptutils.sql
-
 ifdef USE_PGXS
 PGXS := $(shell pg_config --pgxs)
 include $(PGXS)
