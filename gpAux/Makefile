@@ -1075,9 +1075,6 @@ copydocs :
 	        echo "Copying postgresql contrib documentation" ; \
 		cp -r $(INSTLOC)/doc/postgresql/contrib/* $(INSTLOC)/docs/contrib ; \
 	    fi ; \
-	    echo "Copying $(BLD_TOP)/extensions/pljava/PLJAVA_README" ; \
-	    mkdir -p $(INSTLOC)/share/postgresql/pljava ; \
-	    cp -p $(BLD_TOP)/extensions/pljava/PLJAVA_README $(INSTLOC)/share/postgresql/pljava ; \
 	fi
 	@if [ -d $(INSTLOC)/doc ] ; then \
 	    echo "Removing $(INSTLOC)/doc" ; \
@@ -1391,7 +1388,6 @@ GPPKG_SOURCES = \
 	../src/pl/plperl \
 	../src/bin/pg_dump/cdb/ddboost \
 	extensions/postgis-2.0.3 \
-	extensions/pljava \
 	extensions/plr \
 	$(NULL)
 	ifneq ($(wildcard ../contrib/pgpool),)
