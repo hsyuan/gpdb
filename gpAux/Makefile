@@ -376,8 +376,7 @@ define BUILD_STEPS
 	@$(MAKE) mkplatform INSTLOC=$(INSTLOC)
 	if [ "$(findstring $(BLD_ARCH),$(SERVER_PLATFORMS))" != "" ]; then \
 	  $(MAKE) mkgphdfs INSTLOC=$(INSTLOC) && \
-	  $(MAKE) mkorafce INSTLOC=$(INSTLOC) && \
-	  $(MAKE) mkpljava INSTLOC=$(INSTLOC); \
+	  $(MAKE) mkorafce INSTLOC=$(INSTLOC); \
 	fi
 	cd extensions/gpmapreduce/ && $(MAKE) install
 	cd extensions/gp_filedump/ && $(MAKE) install
@@ -1026,9 +1025,6 @@ mkgphdfs:
 
 mkgps3ext:
 	@cd extensions && $(MAKE) mks3ext OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
-
-mkpljava:
-	@cd extensions && $(MAKE) mkpljava OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
 
 mkorafce:
 	@cd extensions && $(MAKE) mkorafce OPT="$(INSTCFLAGS)" INSTLOC=$(INSTLOC)
