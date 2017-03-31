@@ -58,42 +58,6 @@ using namespace gpmd;
 
 //---------------------------------------------------------------------------
 //	@function:
-//		ShtypeFromSpoolInfo
-//
-//	@doc:
-//		Helper function for extracting the GPDB share type from a DXL spool info object
-//
-//---------------------------------------------------------------------------
-ShareType
-ShtypeFromSpoolInfo(const CDXLSpoolInfo *pspoolinfo)
-{
-	ShareType shtype = SHARE_NOTSHARED;
-
-	GPOS_ASSERT(NULL != pspoolinfo);
-
-	if (EdxlspoolMaterialize == pspoolinfo->Edxlsptype())
-	{
-		shtype = SHARE_MATERIAL;
-		if (pspoolinfo->FMultiSlice())
-		{
-			shtype = SHARE_MATERIAL_XSLICE;
-		}
-	}
-	else if (EdxlspoolSort == pspoolinfo->Edxlsptype())
-	{
-		shtype = SHARE_SORT;
-		if (pspoolinfo->FMultiSlice())
-		{
-			shtype = SHARE_SORT_XSLICE;
-		}
-	}
-
-	return shtype;
-}
-
-
-//---------------------------------------------------------------------------
-//	@function:
 //		CTranslatorDXLToPlStmt::CTranslatorDXLToPlStmt
 //
 //	@doc:
