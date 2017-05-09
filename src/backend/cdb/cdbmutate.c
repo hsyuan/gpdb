@@ -2830,9 +2830,13 @@ param_walker(Node *node, ParamWalkerContext *context)
 	return plan_tree_walker(node, param_walker, context);
 }
 
-/* retrieve param ids that are referenced in RTEs */
+/*
+ * Retrieve param ids that are referenced in RTEs.
+ * We can't simply use range_table_walker() here, because we only
+ * want to walk through RTEs that are referenced in the plan.
+ */
 static void
-rte_params_walker(List *rtable, ParamWalkerContext *context)
+rte_param_walker(List *rtable, ParamWalkerContext *context)
 {
 	ListCell *lc;
 	int rteid = 0;
@@ -2945,20 +2949,26 @@ initplan_walker(Node *node, ParamWalkerContext *context)
 void remove_unused_initplans(Plan *top_plan, PlannerInfo *root)
 {
 	ParamWalkerContext context;
-	int num_subplans = list_length(root->glob->subplans);
 
-	if (num_subplans == 0)
+	if (!root->glob->subplans)
 		return;
 
 	context.base.node = (Node *) root;
 	context.paramids = NULL;
 	context.scanrelids = NULL;
 
-	/* get param ids from main plan and subplans */
+	/*
+	 * Collect param ids of all the Params that are referenced in
+	 * the plan,and the IDs of all the range table entries that
+	 * are referenced in the Plan.
+	 */
 	param_walker((Node *) top_plan, &context);
 
-	/* get param ids that are referenced in RTEs */
-	rte_params_walker(root->glob->finalrtable, &context);
+	/*
+	 * Now that we know which range table entries are referenced in
+	 * the plan, also collect Params from those range table entries.
+	 */
+	rte_param_walker(root->glob->finalrtable, &context);
 
 	/* workhorse to remove unused initplans */
 	initplan_walker((Node *) top_plan, &context);
