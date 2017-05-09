@@ -2787,29 +2787,93 @@ cdbhash_const_list(List *plConsts, int iSegments)
 	return cdbhashreduce(pcdbhash);
 }
 
+
 typedef struct ParamWalkerContext
 {
 	plan_tree_base_prefix base; /* Required prefix for plan_tree_walker/mutator */
-	Bitmapset	   *bms_params; /* Bitmapset for Param */
+	Bitmapset	   *paramids; /* Bitmapset for Param */
+	Bitmapset	   *scanrelids; /* Bitmapset for scanrelid */
 } ParamWalkerContext;
 
 static bool
 param_walker(Node *node, ParamWalkerContext *context)
 {
+	Param *param;
+	Scan *scan;
+
 	if (node == NULL)
 		return false;
 
-	if (IsA(node, Param))
+	switch (nodeTag(node))
 	{
-		Param *param = (Param *) node;
-		if (!bms_is_member(param->paramid, context->bms_params))
-		{
-			context->bms_params = bms_add_member(context->bms_params, param->paramid);
-		}
-		return false;
+		case T_Param:
+			param = (Param *) node;
+			if (!bms_is_member(param->paramid, context->paramids))
+				context->paramids = bms_add_member(context->paramids,
+												   param->paramid);
+			return false;
+
+		case T_SubqueryScan:
+		case T_ValuesScan:
+		case T_FunctionScan:
+		case T_TableFunctionScan:
+			scan = (Scan *) node;
+			if (!bms_is_member(scan->scanrelid, context->scanrelids))
+				context->scanrelids = bms_add_member(context->scanrelids,
+													 scan->scanrelid);
+			break;
+
+		default:
+			break;
 	}
 
 	return plan_tree_walker(node, param_walker, context);
+}
+
+/* retrieve param ids that are referenced in RTEs */
+static void
+rte_params_walker(List *rtable, ParamWalkerContext *context)
+{
+	ListCell *lc;
+	int rteid = 0;
+
+	foreach (lc, rtable)
+	{
+		rteid++;
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
+
+		if (!bms_is_member(rteid, context->scanrelids))
+		{
+			// rte not referenced in the plan
+			continue;
+		}
+
+		switch (rte->rtekind)
+		{
+			case RTE_RELATION:
+			case RTE_SPECIAL:
+			case RTE_VOID:
+			case RTE_CTE:
+				/* nothing to do */
+				break;
+			case RTE_SUBQUERY:
+				param_walker((Node *) rte->subquery, context);
+				break;
+			case RTE_JOIN:
+				param_walker((Node *) rte->joinaliasvars, context);
+				break;
+			case RTE_FUNCTION:
+				param_walker(rte->funcexpr, context);
+				break;
+			case RTE_TABLEFUNCTION:
+				param_walker((Node *) rte->subquery, context);
+				param_walker(rte->funcexpr, context);
+				break;
+			case RTE_VALUES:
+				param_walker((Node *) rte->values_lists, context);
+				break;
+		}
+	}
 }
 
 static bool
@@ -2839,7 +2903,7 @@ initplan_walker(Node *node, ParamWalkerContext *context)
 			foreach (lp, subplan->setParam)
 			{
 				int			paramid = lfirst_int(lp);
-				if (bms_is_member(paramid, context->bms_params))
+				if (bms_is_member(paramid, context->paramids))
 				{
 					anyused = true;
 					break;
@@ -2851,7 +2915,6 @@ initplan_walker(Node *node, ParamWalkerContext *context)
 				new_initplans = lappend(new_initplans, subplan);
 			else
 			{
-
 				/*
 				 * This init plan is unused. Leave it out of this plan node's
 				 * initPlan list, and also replace it in the global list of
@@ -2867,7 +2930,7 @@ initplan_walker(Node *node, ParamWalkerContext *context)
 		}
 
 		/* remove unused params */
-		plan->allParam = bms_intersect(plan->allParam, context->bms_params);
+		plan->allParam = bms_intersect(plan->allParam, context->paramids);
 
 		list_free(plan->initPlan);
 		plan->initPlan = new_initplans;
@@ -2881,28 +2944,27 @@ initplan_walker(Node *node, ParamWalkerContext *context)
  */
 void remove_unused_initplans(Plan *top_plan, PlannerInfo *root)
 {
-	ParamWalkerContext param_ctx;
+	ParamWalkerContext context;
 	int num_subplans = list_length(root->glob->subplans);
 
 	if (num_subplans == 0)
 		return;
 
-	param_ctx.base.node = (Node *) root;
-	param_ctx.bms_params = NULL;
-
-	/* get param ids that are referenced in RTEs */
-	range_table_walker(root->glob->finalrtable,
-					   param_walker,
-					   (void *) &param_ctx,
-					   0);
+	context.base.node = (Node *) root;
+	context.paramids = NULL;
+	context.scanrelids = NULL;
 
 	/* get param ids from main plan and subplans */
-	param_walker((Node *) top_plan, &param_ctx);
+	param_walker((Node *) top_plan, &context);
+
+	/* get param ids that are referenced in RTEs */
+	rte_params_walker(root->glob->finalrtable, &context);
 
 	/* workhorse to remove unused initplans */
-	initplan_walker((Node *) top_plan, &param_ctx);
+	initplan_walker((Node *) top_plan, &context);
 
-	bms_free(param_ctx.bms_params);
+	bms_free(context.paramids);
+	bms_free(context.scanrelids);
 }
 
 Node *
