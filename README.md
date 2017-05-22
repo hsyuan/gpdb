@@ -112,11 +112,11 @@ Note:
 Note:
 * Always make a list of attachments, unless you don't have any attachments.
 * Always attach minirepro (if you have) and customer's queries.
-* Always use lower case when naming files
+* Always use lower case when naming files.
 * Always give it suffix. If sql query/explain/output/insert/data file, use ".sql", if log file, use ".log", for other plain text file, use ".txt", for other binaries like images, use the original suffix.
 * Always start with a number, incrementally. If attach more than 9 files, start with "01, 02, 03, ... 10, 11, 12...", and then compress these files into zip or tar.gz file.
 * Always use "." to seperate words in the file name, like the file name in above example.
-* Try to give the file a simgple description, if not easy to guess from the file name what does the file do.
+* Try to give the file a simple description, if not easy to guess from the file name what does the file do.
 
 ## Additional Info
 Any info that you think is important.
