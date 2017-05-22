@@ -16,14 +16,14 @@ Creation of a temporary table fails every time it is run with error. Bla Bla... 
 ## Verification
 √:no issue x:same issue above #:different issue ∆: can't reproduce
 ```
-V4.3.8.1(PQO 1.617): √
-V4.3.8.1(Planner): √
-V4.3.9.0(PQO 2.0): x
-V4.3.9.0(Planner): √
-V4.3.10.0(PQO 2.1): x
-V4.3.10.0(Planner): x
-V4.3.11.0(PQO 2.2): #
-V4.3.11.0(Planner): ∆
+4.3.8.1(PQO 1.617): √
+4.3.8.1(Planner): √
+4.3.9.0(PQO 2.0): x
+4.3.9.0(Planner): √
+4.3.10.0(PQO 2.1): x
+4.3.10.0(Planner): x
+4.3.11.0(PQO 2.2): #
+4.3.11.0(Planner): ∆
 ```
 *Reproducible*: Yes/No
 
