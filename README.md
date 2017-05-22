@@ -13,6 +13,11 @@ etc...
 
 Creation of a temporary table fails every time when running specific kind of query. Bla Bla... Try to describe it in 2 or 3 sentences.
 
+## Expectation
+Workaround / Fix / RCA
+
+If the customer has more specific expectations, describe it in 1 or 2 sentences here.
+
 ## Verification
 √:no issue x:same issue above #:different issue ∆: can't reproduce
 ```
