@@ -11,7 +11,7 @@ System Hang
 etc...
 ```
 
-Creation of a temporary table fails every time it is run with error. Bla Bla... Try to describe it in 2 or 3 sentences.
+Creation of a temporary table fails every time when running specific kind of query. Bla Bla... Try to describe it in 2 or 3 sentences.
 
 ## Verification
 √:no issue x:same issue above #:different issue ∆: can't reproduce
