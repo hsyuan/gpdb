@@ -11,7 +11,7 @@ System Hang
 etc...
 ```
 
-Creation of a temporary table fails every time it is run with error. Bla Bla...
+Creation of a temporary table fails every time it is run with error. Bla Bla... Try to describe it in 2 or 3 sentences.
 
 ## Verification
 √:no issue x:same issue above #:different issue ∆: can't reproduce
@@ -111,6 +111,7 @@ Note:
 ```
 Note:
 * Always make a list of attachments, unless you don't have any attachments.
+* Always attach minirepro (if you have) and customer's queries.
 * Always use lower case when naming files
 * Always give it suffix. If sql query/explain/output/insert/data file, use ".sql", if log file, use ".log", for other plain text file, use ".txt", for other binaries like images, use the original suffix.
 * Always start with a number, incrementally. If attach more than 9 files, start with "01, 02, 03, ... 10, 11, 12...", and then compress these files into zip or tar.gz file.
@@ -119,3 +120,7 @@ Note:
 
 ## Additional Info
 Any info that you think is important.
+
+Note:
+* Please recheck or cross-check the information provided.
+* Please verify the minirepro/gpsd and query are correct and workable, without any modification.
