@@ -697,6 +697,39 @@ checkWellFormedRecursion(CteState *cstate)
 	}
 }
 
+static bool
+checkNoSelfRefInSetOpWalker(Node *node, CteState *cstate) {
+
+	if (node == NULL)
+		return true;
+
+	if (IsA(node, RangeVar))
+	{
+		CommonTableExpr *mycte = cstate->items[cstate->curitem].cte;
+		RangeVar *rv = (RangeVar *) node;
+		if (strcmp(mycte->ctename, rv->relname) == 0)
+			return false;
+	}
+	if (IsA(node, SelectStmt))
+	{
+		SelectStmt *stmt = (SelectStmt *)node;
+		ListCell *lc;
+
+		if (stmt->fromClause == NULL)
+			return true;
+
+		foreach(lc, stmt->fromClause)
+		{
+			if (!checkNoSelfRefInSetOpWalker((Node *) lfirst(lc), cstate))
+				return false;
+		}
+	}
+
+	return raw_expression_tree_walker(node,
+									  checkNoSelfRefInSetOpWalker,
+									  (void *) cstate);
+}
+
 /*
  * Tree walker function to detect invalid self-references in a recursive query.
  */
@@ -760,6 +793,22 @@ checkWellFormedRecursionWalker(Node *node, CteState *cstate)
 	{
 		SelectStmt *stmt = (SelectStmt *) node;
 		ListCell *lc;
+
+		if (stmt->op != SETOP_NONE)
+		{
+			CommonTableExpr *mycte = cstate->items[cstate->curitem].cte;
+			if( mycte->cterecursive)
+			{
+				if (!checkNoSelfRefInSetOpWalker(stmt->larg, cstate) || !checkNoSelfRefInSetOpWalker(stmt->rarg, cstate))
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("Self reference of \"%s\" within recursive term not supported", mycte->ctename),
+							 -1));
+					return true;
+				}
+			}
+		}
 
 		if (stmt->withClause)
 		{

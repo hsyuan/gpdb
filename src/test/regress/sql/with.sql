@@ -276,6 +276,10 @@ WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT SELECT n+1 FROM x)
 WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT ALL SELECT n+1 FROM x)
 	SELECT * FROM x;
 
+-- Set operations within the recursive term with a self-reference
+WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM (SELECT 1 UNION x) foo)
+	SELECT * FROM x;
+
 -- no non-recursive term
 WITH RECURSIVE x(n) AS (SELECT n FROM x)
 	SELECT * FROM x;

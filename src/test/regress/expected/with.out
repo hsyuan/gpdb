@@ -514,6 +514,11 @@ WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT ALL SELECT n+1 FROM x)
 ERROR:  recursive query "x" does not have the form non-recursive-term UNION ALL recursive-term
 LINE 1: WITH RECURSIVE x(n) AS (SELECT 1 EXCEPT ALL SELECT n+1 FROM ...
                        ^
+-- Set operations within the recursive term with a self-reference
+WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM (SELECT 1 UNION x) foo)
+	SELECT * FROM x;
+ERROR:  Self reference of "x" within recursive term not supported
+
 -- no non-recursive term
 WITH RECURSIVE x(n) AS (SELECT n FROM x)
 	SELECT * FROM x;
