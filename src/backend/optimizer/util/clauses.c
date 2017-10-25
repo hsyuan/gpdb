@@ -2107,7 +2107,7 @@ fold_constants(PlannerGlobal *glob, Query *q, ParamListInfo boundParams, Size ma
 						(Node *) query,
 						eval_const_expressions_mutator,
 						&context,
-						0
+						QTW_DONT_COPY_QUERY
 						);
 }
 
